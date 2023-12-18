@@ -8,6 +8,8 @@ possible objetive function: f(E, S, A) = k_1*E + k_2*S - k_3*A
 
 from qclib.gates.mcu import MCU
 from utilities import Utilities as Ut
+from typing import Union
+from qclib.gates.mcu import MCU
 from qiskit import (QuantumCircuit,
                     QuantumRegister,
                     ClassicalRegister,
@@ -17,13 +19,15 @@ from qiskit.visualization import (plot_histogram,
 from qiskit_aer import AerSimulator
 from qiskit_aer.noise import NoiseModel
 from qiskit.providers.fake_provider import FakeVigo
+from qiskit.providers.models import BackendConfiguration
+from qiskit.providers.fake_provider import FakeTokyo
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
 import numpy as np
 import time
 
 
-def built_circuit(pauli_string='x', error=0.1):
+def built_circuit(pauli_string='x', error=0.1, approximated=True):
     """
     Builds a quantum circuit implementing the identiry matrix from two multi-controlled
     Pauli operator.
@@ -31,6 +35,7 @@ def built_circuit(pauli_string='x', error=0.1):
     Args:
         pauli_string (str, optional): The Pauli operator to approximate (default is 'x').
         error (float, optional): The error rate for the approximation (default is 0.1).
+        approximated (bool, optional): Approximated or exact circuit (default is True).
 
     Returns:
         QuantumCircuit: A quantum circuit implementing the approximate the identidy
@@ -45,23 +50,23 @@ def built_circuit(pauli_string='x', error=0.1):
         >>> my_circuit = built_circuit('x', 0.1)
         >>> print(my_circuit)
 
-                ┌───┐┌──────────────┐
-    controls_0: ┤ X ├┤0             ├──■─────
-                ├───┤│              │  │
-    controls_1: ┤ X ├┤1             ├──■─────
-                ├───┤│              │  │
-    controls_2: ┤ X ├┤2             ├──■─────
-                ├───┤│              │  │
-    controls_3: ┤ X ├┤3 Ldmcuapprox ├──■─────
-                ├───┤│              │  │
-    controls_4: ┤ X ├┤4             ├──■─────
-                ├───┤│              │  │
-    controls_5: ┤ X ├┤5             ├──■─────
-                ├───┤│              │┌─┴─┐┌─┐
-        target: ┤ X ├┤6             ├┤ X ├┤M├
-                └───┘└──────────────┘└───┘└╥┘
-     classic: 1/═══════════════════════════╩═
-                                           0
+                ┌───┐┌────────────┐
+    controls_0: ┤ X ├┤0           ├────────
+                ├───┤│            │
+    controls_1: ┤ X ├┤1           ├────────
+                ├───┤│            │
+    controls_2: ┤ X ├┤2           ├────────
+                ├───┤│            │
+    controls_3: ┤ X ├┤3 Mcuapprox ├────────
+                ├───┤│            │
+    controls_4: ┤ X ├┤4           ├────────
+                ├───┤│            │
+    controls_5: ┤ X ├┤5           ├────────
+                ├───┤│            │┌───┐┌─┐
+        target: ┤ X ├┤6           ├┤ X ├┤M├
+                └───┘└────────────┘└───┘└╥┘
+     classic: 1/═════════════════════════╩═
+                                        0
     """
 
     pauli_matrix = Ut.pauli_matrices(pauli_string)
@@ -76,8 +81,10 @@ def built_circuit(pauli_string='x', error=0.1):
     for i in range(len(controls)):
         circ.x(i)
     circ.x(target)
-    MCU.mcu(circ, pauli_matrix_dagger, controls, target, error)
-    circ.mcx(controls, target)
+    if approximated:
+        MCU.mcu(circ, pauli_matrix_dagger, controls, target, error)
+    else:
+        MCU.mcu(circ, pauli_matrix_dagger, controls, target, 0)
     circ.measure(target, [0])
     return circ
 
@@ -106,12 +113,13 @@ def counts_from_fake_backend(circ):
         >>> circ_example = QuantumCircuit(2, 2)
         >>> circ_example.h(0)
         >>> circ_example.cx(0, 1)
-        >>> result_example = accuracy_from_fake_backend(circ)
+        >>> result_example = counts_from_fake_backend(circ)
         >>> print(result)
         {'00': 500, '11': 500}
     """
 
-    backend = FakeVigo()
+    backend = FakeTokyo()
+
     noise_model = NoiseModel.from_backend(backend)
 
     coupling_map = backend.configuration().coupling_map
@@ -126,22 +134,6 @@ def counts_from_fake_backend(circ):
 
     counts = result.get_counts(0)
     return counts
-
-
-def vis(circ, counts):
-    figure, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-
-    # Plotting the histogram in the first subplot
-    plot_histogram(counts, ax=ax1)
-    ax1.set_title('Histogram')
-
-    # Drawing the circuit in the second subplot
-    circuit_drawer(circ, ax=ax2, output='mpl')
-    ax2.set_title('Circuit')
-
-    # Fit layout
-    plt.tight_layout()
-    plt.show()
 
 
 def pyramid_size_vs_error(operator, start, stop, n_samples):
@@ -181,20 +173,20 @@ def generate_accuracy(pauli_string):
 def avg_accuracy(pauli_string, n_mean):
     # Paraleliza a geração de conjuntos de valores de accuracy
     accuracy_arr = Parallel(n_jobs=-1)(
-        delayed(generate_accuracy)(pauli_string) for _ in range(n_mean))
+    delayed(generate_accuracy)(pauli_string) for _ in range(n_mean))
 
     # Converte a lista de arrays em uma matriz NumPy
     accuracy_arr = np.array(accuracy_arr)
 
     # Adiciona um cabeçalho ao arquivo
-    header = "Accuracy Data for Pauli String: {}".format(pauli_string)
+    h = "Accuracy Data for Pauli String: {}".format(pauli_string)
 
     # Salva os dados no arquivo
     file_path = 'avg_accuracy.txt'
-    np.savetxt(file_path, accuracy_arr, fmt='%.6f', header=header)
+    np.savetxt(file_path, accuracy_arr, fmt='%.6f', header=h)
 
 
-#
+# experiment average
 # beginning = time.time()
 #
 # avg_accuracy('x', 300)
@@ -202,6 +194,8 @@ def avg_accuracy(pauli_string, n_mean):
 # end = time.time()
 # time_of_execution = end - beginning
 # print(f"Time of execution: {time_of_execution} seconds")
+
+# one experiment
 
 single_qubit_gate = Ut.pauli_matrices('x')
 beginning = time.time()
@@ -214,40 +208,43 @@ table = np.empty([err.size, 3])
 table[:, 0] = err
 table[:, 1] = acc
 table[:, 2] = len_circ
+header = "Error  Accuracy  Circuit_Size"
+table_with_header = np.vstack([header.split(), table])
 file = 'error_accuracy_circuit-size.txt'
-np.savetxt(file, table)
+np.savetxt(file, table_with_header, fmt='%s')
 
-fig = plt.figure(figsize=(16, 12))
-
-# 3D graph
-ax_3d = fig.add_subplot(221, projection='3d')
-ax_3d.scatter(err, len_circ, acc, color="green")
-ax_3d.set_title('Error x size_circ x accuracy')
-ax_3d.set_xlabel('Error')
-ax_3d.set_ylabel('Size of circuit')
-ax_3d.set_zlabel('Accuracy')
-
-# 2D graph (err, acc)
-ax_2d_1 = fig.add_subplot(222)
-ax_2d_1.plot(err, acc, 'r-o')
-ax_2d_1.set_title('Error x accuracy')
-ax_2d_1.set_xlabel('Error')
-ax_2d_1.set_ylabel('Accuracy')
-
-# 2D graph (err, len_circ)
-ax_2d_2 = fig.add_subplot(223)
-ax_2d_2.plot(err, len_circ, 'b-o')
-ax_2d_2.set_title('Error x size_circ')
-ax_2d_2.set_xlabel('Error')
-ax_2d_2.set_ylabel('Size_circ')
-
-# 2D graph (len_circ, acc)
-ax_2d_3 = fig.add_subplot(224)
-ax_2d_3.plot(len_circ, acc, 'k-o')
-ax_2d_3.set_title('size_circ x accuracy')
-ax_2d_3.set_xlabel('size_circ')
-ax_2d_3.set_ylabel('accuracy')
-
-plt.savefig('result.png', dpi=300)
-plt.tight_layout()
-plt.show()
+#
+# fig = plt.figure(figsize=(16, 12))
+#
+# # 3D graph
+# ax_3d = fig.add_subplot(221, projection='3d')
+# ax_3d.scatter(err, len_circ, acc, color="green")
+# ax_3d.set_title('Error x size_circ x accuracy')
+# ax_3d.set_xlabel('Error')
+# ax_3d.set_ylabel('Size of circuit')
+# ax_3d.set_zlabel('Accuracy')
+#
+# # 2D graph (err, acc)
+# ax_2d_1 = fig.add_subplot(222)
+# ax_2d_1.plot(err, acc, 'r-o')
+# ax_2d_1.set_title('Error x accuracy')
+# ax_2d_1.set_xlabel('Error')
+# ax_2d_1.set_ylabel('Accuracy')
+#
+# # 2D graph (err, len_circ)
+# ax_2d_2 = fig.add_subplot(223)
+# ax_2d_2.plot(err, len_circ, 'b-o')
+# ax_2d_2.set_title('Error x size_circ')
+# ax_2d_2.set_xlabel('Error')
+# ax_2d_2.set_ylabel('Size_circ')
+#
+# # 2D graph (len_circ, acc)
+# ax_2d_3 = fig.add_subplot(224)
+# ax_2d_3.plot(len_circ, acc, 'k-o')
+# ax_2d_3.set_title('size_circ x accuracy')
+# ax_2d_3.set_xlabel('size_circ')
+# ax_2d_3.set_ylabel('accuracy')
+#
+# plt.savefig('result.png', dpi=300)
+# plt.tight_layout()
+# plt.show()
