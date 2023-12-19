@@ -51,22 +51,22 @@ def built_circuit(pauli_string='x', error=0.1, approximated=True):
         >>> print(my_circuit)
 
                 ┌───┐┌────────────┐
-    controls_0: ┤ X ├┤0           ├────────
+    controls_0: ┤ X ├┤0           ├───
                 ├───┤│            │
-    controls_1: ┤ X ├┤1           ├────────
+    controls_1: ┤ X ├┤1           ├───
                 ├───┤│            │
-    controls_2: ┤ X ├┤2           ├────────
+    controls_2: ┤ X ├┤2           ├───
                 ├───┤│            │
-    controls_3: ┤ X ├┤3 Mcuapprox ├────────
+    controls_3: ┤ X ├┤3 Mcuapprox ├───
                 ├───┤│            │
-    controls_4: ┤ X ├┤4           ├────────
+    controls_4: ┤ X ├┤4           ├───
                 ├───┤│            │
-    controls_5: ┤ X ├┤5           ├────────
-                ├───┤│            │┌───┐┌─┐
-        target: ┤ X ├┤6           ├┤ X ├┤M├
-                └───┘└────────────┘└───┘└╥┘
-     classic: 1/═════════════════════════╩═
-                                        0
+    controls_5: ┤ X ├┤5           ├───
+                ├───┤│            │┌─┐
+        target: ┤ X ├┤6           ├┤M├
+                └───┘└────────────┘└╥┘
+     classic: 1/════════════════════╩═
+                                    0
     """
 
     pauli_matrix = Ut.pauli_matrices(pauli_string)
@@ -156,27 +156,27 @@ def axis_to_plot(operator, start=1e-3):
     for error in d:
         circuit = built_circuit('x', error)
         counts = counts_from_fake_backend(circuit)
-        accuracy = counts['1'] / (counts['0'] + counts['1'])
+        accuracy = counts['0'] / (counts['0'] + counts['1'])
         x_axis.append(error)
         y_axis.append(accuracy)
-        z_axis.append(len(circuit))
+        z_axis.append(int(len(circuit)))
 
     return np.array(x_axis), np.array(y_axis), np.array(z_axis)
 
 
-def generate_accuracy(pauli_string):
+def generate_accuracy(pauli_string, start):
     sqg = Ut.pauli_matrices(pauli_string)
-    _, accuracy, _ = axis_to_plot(sqg, start=1e-1)
+    _, accuracy, _ = axis_to_plot(sqg, start=start)
     return accuracy
 
 
-def avg_accuracy(pauli_string, n_mean):
+def avg_accuracy(pauli_string, n_mean, start=0.1):
     # Paraleliza a geração de conjuntos de valores de accuracy
     accuracy_arr = Parallel(n_jobs=-1)(
-    delayed(generate_accuracy)(pauli_string) for _ in range(n_mean))
+        delayed(generate_accuracy)(pauli_string, start) for _ in range(n_mean))
 
     # Converte a lista de arrays em uma matriz NumPy
-    accuracy_arr = np.array(accuracy_arr)
+    accuracy_arr = np.array(accuracy_arr).T
 
     # Adiciona um cabeçalho ao arquivo
     h = "Accuracy Data for Pauli String: {}".format(pauli_string)
@@ -187,33 +187,34 @@ def avg_accuracy(pauli_string, n_mean):
 
 
 # experiment average
-# beginning = time.time()
-#
-# avg_accuracy('x', 300)
-#
-# end = time.time()
-# time_of_execution = end - beginning
-# print(f"Time of execution: {time_of_execution} seconds")
-
-# one experiment
-
-single_qubit_gate = Ut.pauli_matrices('x')
 beginning = time.time()
-err, acc, len_circ = axis_to_plot(single_qubit_gate, start=1e-1)
+
+avg_accuracy('x', 300, 1e-3)
+
 end = time.time()
 time_of_execution = end - beginning
 print(f"Time of execution: {time_of_execution} seconds")
 
-table = np.empty([err.size, 3])
-table[:, 0] = err
-table[:, 1] = acc
-table[:, 2] = len_circ
-header = "Error  Accuracy  Circuit_Size"
-table_with_header = np.vstack([header.split(), table])
-file = 'error_accuracy_circuit-size.txt'
-np.savetxt(file, table_with_header, fmt='%s')
+# one experiment
 
+# single_qubit_gate = Ut.pauli_matrices('x')
+# beginning = time.time()
+# err, acc, len_circ = axis_to_plot(single_qubit_gate, start=1e-3)
+# end = time.time()
+# time_of_execution = end - beginning
+# print(f"Time of execution: {time_of_execution} seconds")
 #
+# table = np.empty([err.size, 3])
+# table[:, 0] = err
+# table[:, 1] = acc
+# table[:, 2] = len_circ
+# header = "Error  Accuracy  Circuit_Size"
+# table_with_header = np.vstack([header.split(), table])
+# file = 'error_accuracy_circuit-size.txt'
+# np.savetxt(file, table_with_header, fmt='%s')
+
+# plot
+
 # fig = plt.figure(figsize=(16, 12))
 #
 # # 3D graph
